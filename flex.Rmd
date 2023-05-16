@@ -1,0 +1,144 @@
+---
+title: "Crime by Subject Gender"
+author: "Rifat Monzur"
+date: "2023-03-14"
+output: flexdashboard::flex_dashboard
+orientation: rows
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+library(corrplot)
+library(ggcorrplot)
+library(ggmap)
+library(leaflet)
+library(xts)
+library(rgdal)
+library(ggplot2)
+library(Rcpp)
+library(sf)
+library(tidyverse)
+library(lubridate)
+library(dplyr) 
+library(forcats)
+theme_set(theme_classic())
+```
+
+# Gender Percentage {data-icon="fa-table"}
+
+We explore crime by subject gender and race. How much crime are committed by each gender. Which  type of crime is commmited more by which gender.
+
+
+```{r}
+data <- read.csv("37-00049_UOF-P_2016_prepped.csv", header = TRUE)
+data <- data[-1,]
+table(data$SUBJECT_GENDER)
+```
+
+# Percentage  {data-icon="fa-table"}
+```{r}
+# use prop.table() to calculate the percentage of each value in the "x" column
+prop_table <- prop.table(table(data$SUBJECT_GENDER)) * 100
+
+# convert the resulting table to a data frame and add column names
+prop_df <- data.frame(prop_table)
+names(prop_df) <- c("value", "percentage")
+
+# create a bar plot of the percentage values
+ggplot(prop_df, aes(x = value, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue", colour="black") +
+  xlab("Value") + ylab("Percentage") +
+  ggtitle("Percentage of values in the 'x' column") +
+  labs(x = "Gender", y = "Percentage", title = "Percentage By Gender")+
+  theme_bw()
+```
+
+# Incidents by Crime {data-icon="fa-signal"}
+
+
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_GENDER %in% c('Male','Female'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_GENDER) %>% summarise(count = n())
+
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_GENDER), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+  labs(fill='GENDER') +
+  coord_flip()
+```
+
+
+
+# Incident Map {data-icon="fa-signal"}
+
+```{r}
+map_data  <- data[!is.na(data$LOCATION_LATITUDE), ]
+map_data  <- map_data[!is.na(data$LOCATION_LONGITUDE), ]
+map_data$LOCATION_LATITUDE = as.numeric(map_data$LOCATION_LATITUDE)
+map_data$LOCATION_LONGITUDE = as.numeric(map_data$LOCATION_LONGITUDE)
+names(map_data)[32] <- "lat"
+names(map_data)[33] <- "lon"
+
+map <- map_data %>% leaflet() %>% 
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles(providers$Stamen.TonerLite, group = "Toner Lite")   %>%
+  setView(-96.78,32.8,zoom = 9) %>% 
+  addCircles(data = map_data[map_data$SUBJECT_GENDER=="Male",], group = "Male", color = 'red', label = map_data$SUBJECT_OFFENSE)%>%
+  addCircles(data = map_data[map_data$SUBJECT_GENDER=="Female",], group = "Female",color='blue', label = map_data$SUBJECT_OFFENSE)
+map%>%  addLayersControl(
+    baseGroups = c("OSM (default)", "Toner Lite"),
+    overlayGroups = c("Male","Female"),
+    options = layersControlOptions(collapsed = TRUE)) %>%
+ leaflet::addLegend(
+  position = "bottomright",
+  colors = c('red','blue'),
+  labels = c('Male','Female'), opacity = 1,
+  title = "Gender"
+)
+```
+
+# Crime by Male {data-icon="fa-signal"}
+
+
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_GENDER %in% c('Male')) %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_RACE) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_RACE), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Female Incidents  against type of incidents")+
+  theme_bw()+
+  labs(fill='Race')+
+  coord_flip()
+
+```
+
+# Crime by Female {data-icon="fa-signal"}
+
+```{r}
+
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_GENDER %in% c('Female')) %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_RACE) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_RACE), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Female Incidents  against type of incidents")+
+  theme_bw()+
+  labs(fill='Race')+
+  coord_flip()
+
+```

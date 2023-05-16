@@ -1,0 +1,492 @@
+---
+title: "Assignment"
+author: "Rifat Monzur"
+date: "2023-04-07"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+out.width= "65%"
+```
+
+# Explotory Data Analysis of Dallas, Texas
+
+### Libary installations
+All the installations are commented out so it do not install everytime
+```{r}
+#install.packages("ggmap")
+#install.packages("leaflet")
+#install.packages("xts")
+#install.packages("rgdal")
+#install.packages("sf")
+```
+
+### Loading Library
+```{r}
+library(corrplot)
+library(ggcorrplot)
+library(ggmap)
+library(leaflet)
+library(xts)
+library(rgdal)
+library(ggplot2)
+library(Rcpp)
+library(sf)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(forcats)
+```
+
+## 1. Reading and checking data format
+Let's start by reading the data and check how many rows and columns are available
+```{r}
+data <- read.csv("37-00049_UOF-P_2016_prepped.csv", header = TRUE)
+data <- data[-1,]
+dim(data)
+```
+### Let's check data type and formats 
+
+```{r}
+head(data)
+```
+From the above summary of data we can understand that it is policing incident of texas dallas area. It has report of incidents. It has details of officer as well as  details of subject. It also contains area details and force used or not. If any force used how many types of force used.
+
+We will mainly focus on incident over time, subject by gender and race and force usage on subject. We will try to explore and analyse gender, race and subject and find relationship between them. 
+
+## 2.Explore data by Incident Time
+##### Format the date from character to date format
+Here date is in string format. We will convert it into date object  and make month and hour column. As month and hour will come handy to  time series analyse.
+```{r}
+data$date <- mdy(data$INCIDENT_DATE)
+data$month <- format(data$date, "%m")
+data$hour <-  strptime(data$INCIDENT_TIME, format = "%I:%M:%S %p")
+data$hour <- as.numeric(format(data$hour, "%H"))
+table(format(data$date, "%y"))
+```
+We can see all the data are from year 2016. So, year by year analysis is not feasible. We will focus more on monthly, weekly and hourly incident occurance.
+
+##### Lets checkout day by day incidents over the year 2016 and smooth the line for  ease visualization
+
+```{r}
+# Count the number of occurrences per day
+data_count <- data %>% group_by(date) %>% summarise(count = n())
+
+# Plot the data using ggplot
+ggplot(data_count, aes(x = date, y = count)) +
+  #geom_col() +
+  geom_line(size=0.5, col="gray") +
+  geom_smooth(method = "loess", color = "red", span = 1/5) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Day", y = "Incidents Count", title = "Incident count by Day")+
+  theme_bw()
+```
+
+From the distribuition we can see the crime  over the whole year. We can see decrease in incident rate at the end  of the year. While it peaked around the March. Incident rate seems to between 4-25 per day. Let's explore bit more. 
+
+
+
+##### Summary of incident count per day
+```{r}
+summary(data_count$count)
+```
+We can see median incident being 6 and mean being 6.751. Maximum incident in one day is 24 and minimum being 1. However there there could be days where no incident happened which is oviously not in our database. We will explore that bit later.
+
+
+##### Checking outlier using boxplot for per day incident
+```{r}
+boxplot(data_count$count,
+main = "Incident per day at Texas",
+xlab = "Incidents Per Day",
+ylab = "",
+col = "skyblue",
+border = "black",
+horizontal = TRUE,
+notch = TRUE
+)
+```
+We can  see from the box plot that there is no outlier on the lower end but there are few outlier on the upper end. Most of the cases it will not have huge impact on the data.
+
+##### Distribution of daily incidents
+```{r}
+ ggplot(data_count, aes(count) ) +
+  geom_density(alpha = 0.5, colour = "black", fill ="skyblue")+ labs(x="Incidents count per day", y= "Density", title="Distribuion of incidents per day") +
+  theme_bw() 
+```
+From  the density plot, we can see most common occurance of crime is 3 to 5 per day. There are very few value at the  higher end of the distribution.
+
+
+##### Incidents by months
+```{r}
+month <- as.Date(cut(data$date, breaks = "month"))
+df <- data.frame(month,data$date)
+data_count <- df %>% group_by(month) %>% summarise(count = n())
+ggplot(data_count, aes(x = month, y = count)) +
+  geom_col(alpha = 0.5, colour = "black", fill ="skyblue") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  labs(x = "Month", y = "Incidents Count", title = "Incidents Count by Month")
+```
+Month by distribuition of crime made our previous assumption more clear that in february and march crime peaked while at  the end of the year it decreased. This is however is no pattern as it is only one year data. So, it is hard to make yearly assumption out of it.
+
+
+
+##### Incidents  by month and day to check where higher  and lower  value  for per day crime stands.
+```{r}
+month <- format(data$date,"%m")
+date <- format(data$date, "%d")
+df <- data.frame(month,date)
+data_count <- df %>% group_by(month, date) %>% summarise(count = n())
+ggplot(data_count, aes(x= date, y= month,fill = count)) + geom_tile( ) + 
+geom_text(aes(date, month, label = count), color = "black", size = 3) + scale_y_discrete("Months",labels=c("January","February", "March", "April","May", "June","July","August", "September","October","November","December")) + labs(x="Days of Month", y= "Months", title=" Incident Rates across Dates and Months")+
+  scale_fill_gradientn(colours = c("white", "red"))
+```
+From day to day crime distribution it isi clear there are some day without any crime like december 4th. Most of  the higher value days  are in the first few months and blank and lower value days are at  the last few months which  is quite  normal considering  previous monthly plots.
+
+
+
+##### Check incidents by  weekdays  and  look if weekend has  any  effect on the crime level
+```{r}
+weekday <- weekdays(data$date)
+df <- data.frame(weekday)
+data_count <- df %>% group_by(weekday) %>% summarise(count = n())
+# Start date from monday
+data_count <- data_count %>%
+  mutate(weekday = factor(weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")))
+ggplot(data_count, aes(x = weekday, y = count)) +
+  geom_col(alpha = 0.5, colour = "black", fill ="skyblue") +
+  labs(x = "Day", y = "Incident Count", title = "Count of Incidents against Weekdays")
+```
+From the weekday crime occurance column it seems to be indicating weekends are most crime prone. Friday as well has more crimes than other weekdays. It could be because of friday night party as a start of weekend. Overall sunday has the most incidents. However, saturday and sunday incident could be more because of few days with more incidents and thus increase the percentage of the incidents. 
+
+##### Making it more clear if most of the weekends and friday got most incidents or it  is because of the  some  higher count of incidents in few weekends
+```{r}
+
+df <- data
+data_count <- df %>% group_by(date, month) %>% summarise(count = n())
+data_count$weekday <- weekdays(data_count$date)
+table(data_count$month)
+
+data_count$day <- as.numeric(day(data_count$date))
+table(data_count$day)
+data_count %>%
+  #filter(month %in% c("01")) %>%
+  ggplot(aes(x=day,y=count)) + 
+  geom_point(aes(color=weekday),size=4) +
+  geom_line(aes(group=1),linetype='dotted') +
+  theme_bw() +
+  labs(fill='Weekdays') +
+  #scale_x_continuous("Day of the month", labels = as.character(data_count$day), breaks = data_count$day) +
+  facet_wrap(~month,nrow=6, scales = "free" )
+```
+From the weekday distribuition it is clear most friday, saturday and sunday has more crime than other days of the week. It is consistant about that over the year.
+
+
+#####  Checking which hour  of the day got more incidents
+```{r}
+# Count the number of occurrences per day
+data_count <- data %>% group_by(hour) %>% summarise(count = n())
+data_count <- data_count[!is.na(data_count$hour),]
+
+# Plot the data using ggplot
+ggplot(data_count, aes(x = factor(hour), y = count)) +
+  geom_col(alpha = 0.5, colour = "black", fill ="skyblue") +
+  labs(x = "Hour in day", y = "Incidents Count", title = "Incidents Count by Hour in day") +
+  theme_bw()
+```
+As we can see incidents occurred more at night. From 5pm to 9pm is the more the more crime prone. However this  could increased  by some specific occurance of major incidents in that time period. Let's explore it more.
+
+
+##### Find out from the scatter plot if high incidents in night consistant occurance or some night's high  occcurance influencing the overall.
+```{r}
+data_count <- data %>% group_by(date, hour) %>% summarise(count = n())
+data_count <- data_count[!is.na(data_count$hour),]
+ggplot(data_count, aes(x = factor(hour), y = count)) +
+    geom_point(alpha = 0.1, colour = "red", aes(size=factor(count))) +
+  labs(x = "Hour in day", y = "Incidents Count", title = "Incidents in a day by Hour") +
+  theme_bw() +
+  labs(size="Incident Count")
+```
+We divide the data by incidents in a day by hour. We set low alpha value to determine overlap. From the above graph it is more clear that incidents in the night is not random incidents. It is more during 5pm to 9pm as overlapping made it more solid color  as  well  as we see higher incidents in that interval. 
+
+## 3. Subject Race
+#####  Let's explore subject race
+```{r}
+getCategoryPercentages <- function(cat_var) {
+  # calculate the number of observations in each category
+  cat_counts <- table(cat_var)
+  
+  # calculate the percentage of observations in each category
+  cat_percentages <- prop.table(cat_counts) * 100
+  
+  # return the category percentages
+  return(cat_percentages)
+}
+```
+```{r}
+getCategoryPercentages(data$SUBJECT_RACE)
+```
+There are 3 main races in the subject. 'Black' being the majority, followed by 'Hispanic' and 'White'. Let's ignore the other races for now.
+
+
+##### Check incidents by hours  of day with different race
+```{r}
+
+data[!is.na(data$hour),] %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic')) %>%
+  count(SUBJECT_RACE, hour) %>%
+  ggplot(aes(x=factor(hour),y=n,color=SUBJECT_RACE,group=SUBJECT_RACE)) + 
+  geom_point() + 
+  geom_line(linetype='dotted') +
+  labs(x = "Hour in a day", y = "Incidents Count", title = "Incidents in a day by Hour against race")+
+  theme_bw() +
+  scale_color_discrete(name = "Race")
+```
+Crime pattern seems similar over the day for all the three races.
+
+##### Check incidents by weekdays with different race
+```{r}
+df <- data
+df$weekday <- weekdays(df$date)
+df <- df %>%
+  mutate(weekday = factor(weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")))
+df %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic')) %>%
+  count(SUBJECT_RACE, weekday) %>%
+  ggplot(aes(x=factor(weekday),y=n,color=SUBJECT_RACE,group=SUBJECT_RACE)) + 
+  geom_point() + 
+  geom_line(linetype='dotted') +
+  labs(x = "Weekdays", y = "Incidents Count", title = "Incidents in a day against Weekdays by race")+
+  theme_bw() +
+   scale_color_discrete(name = "Race")
+```
+'Black' subject tends to commit more crime on friday. 'Hispanic' subject tend to commit more crime on sunday. Overall, all races commit more crime on weekends and friday. However, 'Hispanic' subjects crime on sunday is too much compared to other days. Let's explore more.
+
+
+
+##### Check weekdays with median value to  make sure it did not affect because of outliers
+```{r}
+data_count <- df %>% group_by(date, weekday, SUBJECT_RACE) %>% summarise(count = n())
+data_count <- data_count %>% group_by(weekday, SUBJECT_RACE) %>% summarise(med = median(count))
+data_count %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic')) %>%
+  ggplot(aes(x=factor(weekday),y=med,color=SUBJECT_RACE,group=SUBJECT_RACE)) + 
+  geom_point() + 
+  geom_line(linetype='dotted') +
+  labs(x = "Weekdays", y = "Incidents Count", title = "Median Incidents against Weekdays by race")+
+  theme_bw()+
+ scale_color_discrete(name = "Race")
+```
+We are looking into median incidents by race. Sunday behaviour still holds for 'Hispanic' subjects. 'Black' subjects are still commit more crimes. 
+
+##### Draw map to see  any pattern over the race according to area of living
+```{r}
+map_data  <- data[!is.na(data$LOCATION_LATITUDE), ]
+map_data  <- map_data[!is.na(data$LOCATION_LONGITUDE), ]
+map_data$LOCATION_LATITUDE = as.numeric(map_data$LOCATION_LATITUDE)
+map_data$LOCATION_LONGITUDE = as.numeric(map_data$LOCATION_LONGITUDE)
+names(map_data)[32] <- "lat"
+names(map_data)[33] <- "lon"
+
+map <- map_data %>% leaflet() %>% 
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles(providers$Stamen.TonerLite, group = "Toner Lite")   %>%
+  setView(-96.78,32.8,zoom = 10) %>% 
+  addCircles(data = map_data[map_data$SUBJECT_RACE=="Black",], group = "Black", color = 'black', label=map_data$SUBJECT_OFFENSE)%>%
+  addCircles(data = map_data[map_data$SUBJECT_RACE=="Hispanic",], group = "Hispanic",color='blue',label=map_data$SUBJECT_OFFENSE)%>%
+  addCircles(data = map_data[map_data$SUBJECT_RACE=="White",], group = "White",color="red", label=map_data$SUBJECT_OFFENSE) 
+map%>%  addLayersControl(
+    baseGroups = c("OSM (default)", "Toner Lite"),
+    overlayGroups = c("Black","White","Hispanic"),
+    options = layersControlOptions(collapsed = TRUE)) %>%
+ leaflet::addLegend(
+  position = "bottomright",
+  colors = c('black', 'red','blue'),
+  labels = c('Black','White','Hispanic'), opacity = 1,
+  title = "Race"
+)
+```
+From the data we can observe that white subject incidents are more common in centre of the map and on the upper portion. There are  low crimes  on lower portion of the map commited by  white  subjects.
+
+On the other hand  black subject crimes are more common  in the centre and lower part of the map. 
+
+Hispanic crimes are spread all over the map. But, it got little bit more crime on the  left side of the  map. 
+
+Overall centre of the map got more crime followed by lower left portion. Upper left portion of the map contains least crime.
+
+
+##### Check the types and count of crimes  by race
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_RACE %in% c('Black','White', 'Hispanic'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_RACE) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_RACE), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Race')+
+  coord_flip()
+```
+Overall APOWW is the  most common incident followed  by No Arrest and Public intoxication. Warrant and Assault are the other common incidents. White subject have  bigger portion in public intoxication compared to other race. On the otherhand Black race have bigger portion  for  warrant and APOWW. Hispanic have bigger portion on No Arrest. When we mention bigger portion it  is compare to their size in the database. 
+
+##### Let's take a deeper look into Black subject crimes by Gender
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_RACE %in% c('Black'))  %>% 
+filter(SUBJECT_GENDER %in% c('Male', 'Female'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_GENDER) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_GENDER), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Gender')+
+  coord_flip()
+```
+APOWW and No arrest are the most common incidents among black subject. Other then  that Warant, public intoxication and Assault are quite common. For APOWW, we can see more female has bigger portion compare to other crime. 
+
+
+##### Let's take a deeper look into Hispanic subject crimes by Gender
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_RACE %in% c('Hispanic'))  %>% 
+filter(SUBJECT_GENDER %in% c('Male', 'Female'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_GENDER) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_GENDER), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Gender')+
+  coord_flip()
+```
+No arrest, APOWW and Public intoxication are the most common incidents among hispanic subject. Other then  that Warant, public servant and Assault are quite common. For APOWW, we can see more female has bigger portion compare to other crime.
+
+##### Let's take a deeper look into White subject crimes by Gender
+```{r}
+freq_table <- table(data$SUBJECT_OFFENSE) 
+filtered_df <- data[data$SUBJECT_OFFENSE %in% names(freq_table[freq_table >= 20]), ]
+filtered_df <- filtered_df %>%
+  filter(SUBJECT_RACE %in% c('White'))  %>% 
+filter(SUBJECT_GENDER %in% c('Male', 'Female'))
+data_count <- filtered_df %>% group_by(SUBJECT_OFFENSE, SUBJECT_GENDER) %>% summarise(count = n())
+ggplot(data_count, aes(x = fct_rev(fct_reorder(SUBJECT_OFFENSE,count)), y = count))+
+  geom_col( aes(fill = SUBJECT_GENDER), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Gender')+
+  coord_flip()
+```
+APOWW, Public intoxication and No arrest are the most common incidents among White subject. Other then  that Warant, public servant and Burglary are quite common. For APOWW and public intoxication, we can see more female has bigger portion compare to other crime.
+
+##  4. Force Effectiveness
+
+##### Check how many number of forces used per incidents
+```{r}
+set.seed(1234)
+# split the character column by comma
+data$NO_OF_FORCE <- sapply(strsplit(as.character(data$FORCE_EFFECTIVE), ","), length)
+#data$NO_OF_FORCE <- as.factor(data$NO_OF_FORCE)
+
+# convert the new column to numeric
+#data$NO_OF_FORCE <- as.numeric(data$NO_OF_FORCE)
+table(data$NO_OF_FORCE)
+# create a histogram
+ggplot(data, aes(NO_OF_FORCE)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 10) +
+   labs(x = "Date", y = "Count", title = "Count of Day by Date") +
+  xlab("NO_OF_FORCE")+
+   scale_x_continuous("Type of Forces", labels = as.character(data$NO_OF_FORCE), breaks = data$NO_OF_FORCE)+
+  labs(x = "Number of Force", y = "Incidents Count", title = "Incident count against Number of Force")
+
+
+```
+
+
+##### Check how many number of forces used per incidents by Race
+```{r}
+
+filtered_df <- data %>%
+  filter(SUBJECT_RACE %in% c('White','Black', 'Hispanic'))  
+data_count <- filtered_df %>% group_by(NO_OF_FORCE, SUBJECT_RACE) %>% summarise(count = n())
+ggplot(data_count, aes(x = as.factor(NO_OF_FORCE), y = count))+
+  geom_col( aes(fill = SUBJECT_RACE), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Gender')+
+  coord_flip()
+```
+
+##### Check how many number of forces used per incidents by Gender
+```{r}
+filtered_df <- data %>%
+  filter(SUBJECT_GENDER %in% c('Male','Female'))  
+data_count <- filtered_df %>% group_by(NO_OF_FORCE, SUBJECT_GENDER) %>% summarise(count = n())
+ggplot(data_count, aes(x = as.factor(NO_OF_FORCE), y = count))+
+  geom_col( aes(fill = SUBJECT_GENDER), width = 0.7) + 
+   labs(x = "Type of Incidents", y = "Incidents Count", title = "Incident count against type of incidents by Race")+
+  theme_bw()+
+   labs(fill='Race')+
+  coord_flip()
+```
+As we can see two type of force more used in female compare to their population size. Male population face more type of forces. We can see a  increase overall when population is male with respect to force number.
+
+
+
+
+
+
+
+
+
+## 5. Crime by Subject  Gender (Check Flex)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Reference
+I took help from below resources
+
+https://www.kaggle.com/code/shivamb/4-3-analysis-report-officer-level-analysis
+https://www.kaggle.com/code/yashedpotatoes/tidying-acs-data-in-r-and-python
+https://www.kaggle.com/code/araraonline/austin-use-of-force-eda
+https://www.kaggle.com/code/vincentkr18/eda-time-series-analysis-policing-equity
+https://epirhandbook.com/en/ggplot-basics.html
+https://towardsdatascience.com/how-to-create-a-correlation-matrix-with-too-many-variables-309cc0c0a57
+http://lab.rady.ucsd.edu/sawtooth/business_analytics_in_r/Viz1.html
