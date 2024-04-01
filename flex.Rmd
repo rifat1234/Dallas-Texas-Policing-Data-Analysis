@@ -8,16 +8,16 @@ orientation: rows
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
-```{r setup, include=FALSE}
+```{r include=FALSE}
 library(corrplot)
 library(ggcorrplot)
 library(ggmap)
 library(leaflet)
 library(xts)
-library(rgdal)
+#library(rgdal)
 library(ggplot2)
 library(Rcpp)
 library(sf)
@@ -38,6 +38,7 @@ data <- read.csv("37-00049_UOF-P_2016_prepped.csv", header = TRUE)
 data <- data[-1,]
 table(data$SUBJECT_GENDER)
 ```
+
 
 # Percentage  {data-icon="fa-table"}
 ```{r}
