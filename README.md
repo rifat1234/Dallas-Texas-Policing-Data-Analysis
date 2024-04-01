@@ -1,5 +1,7 @@
 # Exploratory Police Data Analysis of Dallas,Texas
 
+[![RPubs App](https://img.shields.io/badge/Open_in-RPubs-blue2)](https://rpubs.com/rifat_monzur/Policing-Data-Analysis-Dallas-Texas)
+
 Analysed Real-world unstructured Policing data By Time, Gender and Race. 🚀
 
 Find more in depth in the [project analysis](https://rpubs.com/rifat_monzur/Policing-Data-Analysis-Dallas-Texas)
